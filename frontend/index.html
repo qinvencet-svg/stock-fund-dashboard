@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>投资分析仪表盘</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        up: '#ef4444',
+        down: '#22c55e',
+      }
+    }
+  }
+}
+</script>
+<style>
+* { -webkit-tap-highlight-color: transparent; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif; }
+.up-color { color: #ef4444; }
+.down-color { color: #22c55e; }
+.flat-color { color: #6b7280; }
+.up-bg { background-color: rgba(239,68,68,0.1); }
+.down-bg { background-color: rgba(34,197,94,0.1); }
+.flat-bg { background-color: rgba(107,114,128,0.1); }
+.glass { background: rgba(255,255,255,0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.dark .glass { background: rgba(30,30,30,0.85); }
+.modal-overlay { background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); }
+.animate-slide-up { animation: slideUp 0.3s ease-out; }
+@keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.animate-fade-in { animation: fadeIn 0.2s ease-out; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.pulse-dot { animation: pulse 2s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+.loading-spinner { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.tab-active { border-bottom: 2px solid #3b82f6; color: #3b82f6; font-weight: 600; }
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+</style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen pb-20">
+
+<!-- 顶部状态栏 -->
+<header class="sticky top-0 z-40 glass border-b border-gray-200 dark:border-gray-700">
+  <div class="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <span class="text-xl">📊</span>
+      <h1 class="text-lg font-bold">投资仪表盘</h1>
+    </div>
+    <div class="flex items-center gap-3">
+      <span id="updateTime" class="text-xs text-gray-400"></span>
+      <button onclick="refreshDashboard()" class="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
+        <svg id="refreshIcon" class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-lg mx-auto px-4 py-4">
+  <!-- 概览卡片 -->
+  <div id="summaryCards" class="grid grid-cols-3 gap-3 mb-4">
+    <div class="bg-white dark:bg-gray-800 rounded-xl p-3 shadow-sm text-center">
+      <div class="text-xs text-gray-400 mb-1">持仓股票</div>
+      <div id="stockCount" class="text-xl font-bold">-</div>
+    </div>
+    <div class="bg-white dark:bg-gray-800 rounded-xl p-3 shadow-sm text-center">
+      <div class="text-xs text-gray-400 mb-1">今日上涨</div>
+      <div id="upCount" class="text-xl font-bold up-color">-</div>
+    </div>
+    <div class="bg-white dark:bg-gray-800 rounded-xl p-3 shadow-sm text-center">
+      <div class="text-xs text-gray-400 mb-1">今日下跌</div>
+      <div id="downCount" class="text-xl font-bold down-color">-</div>
+    </div>
+  </div>
+
+  <!-- Tab 切换 -->
+  <div class="flex border-b border-gray-200 dark:border-gray-700 mb-4">
+    <button onclick="switchTab('stocks')" id="tab-stocks" class="flex-1 py-3 text-center text-sm tab-active">
+      🏢 股票持仓
+    </button>
+    <button onclick="switchTab('funds')" id="tab-funds" class="flex-1 py-3 text-center text-sm text-gray-400">
+      💰 基金持仓
+    </button>
+    <button onclick="switchTab('analyze')" id="tab-analyze" class="flex-1 py-3 text-center text-sm text-gray-400">
+      🔍 智能分析
+    </button>
+  </div>
+
+  <!-- 股票持仓面板 -->
+  <div id="panel-stocks" class="space-y-2">
+    <div class="flex justify-between items-center mb-2">
+      <h2 class="text-sm font-semibold text-gray-500">A股持仓</h2>
+      <button onclick="showAddModal('stock')" class="text-xs bg-blue-500 text-white px-3 py-1.5 rounded-lg">+ 添加</button>
+    </div>
+    <div id="stockList" class="space-y-2">
+      <div class="text-center py-8 text-gray-400"><div class="loading-spinner inline-block w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full"></div><br>加载中...</div>
+    </div>
+  </div>
+
+  <!-- 基金持仓面板 -->
+  <div id="panel-funds" class="space-y-2 hidden">
+    <div class="flex justify-between items-center mb-2">
+      <h2 class="text-sm font-semibold text-gray-500">基金持仓</h2>
+      <button onclick="showAddModal('fund')" class="text-xs bg-blue-500 text-white px-3 py-1.5 rounded-lg">+ 添加</button>
+    </div>
+    <div id="fundList" class="space-y-2">
+      <div class="text-center py-8 text-gray-400">加载中...</div>
+    </div>
+  </div>
+
+  <!-- 智能分析面板 -->
+  <div id="panel-analyze" class="space-y-4 hidden">
+    <!-- 搜索输入 -->
+    <div class="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm">
+      <label class="text-sm font-semibold text-gray-500 block mb-2">🔍 输入代码进行AI分析</label>
+      <div class="flex gap-2">
+        <select id="analyzeType" class="w-20 px-2 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 rounded-lg text-sm">
+          <option value="stock">股票</option>
+          <option value="fund">基金</option>
+        </select>
+        <input id="analyzeCode" type="text" placeholder="输入代码 如 002475" 
+               class="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <button onclick="doAnalyze()" id="analyzeBtn" class="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600">
+          分析
+        </button>
+      </div>
+    </div>
+    
+    <!-- 分析结果 -->
+    <div id="analyzeResult" class="hidden">
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
+        <div class="p-4 border-b border-gray-100 dark:border-gray-700">
+          <div class="flex justify-between items-center">
+            <h3 id="analyzeTitle" class="font-bold"></h3>
+            <span id="analyzeCacheTag" class="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 hidden">缓存</span>
+          </div>
+          <div id="analyzeSubtitle" class="text-xs text-gray-400 mt-1"></div>
+        </div>
+        
+        <!-- 图表区域 -->
+        <div id="analyzeChart" class="h-56 px-2"></div>
+        
+        <!-- AI 分析文本 -->
+        <div id="analyzeText" class="p-4 text-sm leading-relaxed whitespace-pre-wrap border-t border-gray-100 dark:border-gray-700"></div>
+      </div>
+    </div>
+
+    <!-- 分析中 loading -->
+    <div id="analyzeLoading" class="hidden text-center py-8">
+      <div class="loading-spinner inline-block w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full"></div>
+      <p class="text-sm text-gray-400 mt-2">AI 正在分析中，请稍候...</p>
+    </div>
+  </div>
+</main>
+
+<!-- 底部导航 -->
+<nav class="fixed bottom-0 left-0 right-0 z-40 glass border-t border-gray-200 dark:border-gray-700">
+  <div class="max-w-lg mx-auto flex justify-around py-2">
+    <button onclick="switchTab('stocks')" class="flex flex-col items-center px-4 py-1 text-xs" id="nav-stocks">
+      <span class="text-lg">🏢</span>
+      <span>股票</span>
+    </button>
+    <button onclick="switchTab('funds')" class="flex flex-col items-center px-4 py-1 text-xs text-gray-400" id="nav-funds">
+      <span class="text-lg">💰</span>
+      <span>基金</span>
+    </button>
+    <button onclick="switchTab('analyze')" class="flex flex-col items-center px-4 py-1 text-xs text-gray-400" id="nav-analyze">
+      <span class="text-lg">🔍</span>
+      <span>分析</span>
+    </button>
+  </div>
+</nav>
+
+<!-- 添加持仓弹窗 -->
+<div id="addModal" class="fixed inset-0 z-50 hidden">
+  <div class="modal-overlay absolute inset-0" onclick="closeAddModal()"></div>
+  <div class="absolute bottom-0 left-0 right-0 bg-white dark:bg-gray-800 rounded-t-2xl p-6 animate-slide-up">
+    <div class="flex justify-between items-center mb-4">
+      <h3 id="addModalTitle" class="text-lg font-bold">添加持仓</h3>
+      <button onclick="closeAddModal()" class="text-gray-400 text-2xl">&times;</button>
+    </div>
+    <div class="space-y-3">
+      <input id="addCode" type="text" placeholder="代码 (如 002475)" class="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+      <input id="addName" type="text" placeholder="名称 (如 立讯精密)" class="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+      <button onclick="doAdd()" class="w-full py-3 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-600">确认添加</button>
+    </div>
+  </div>
+</div>
+
+<!-- 详情弹窗 -->
+<div id="detailModal" class="fixed inset-0 z-50 hidden overflow-y-auto">
+  <div class="modal-overlay absolute inset-0" onclick="closeDetailModal()"></div>
+  <div class="relative min-h-screen flex items-end justify-center">
+    <div class="relative w-full max-w-lg bg-white dark:bg-gray-800 rounded-t-2xl animate-slide-up max-h-[90vh] overflow-y-auto">
+      <div class="sticky top-0 bg-white dark:bg-gray-800 p-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
+        <div>
+          <h3 id="detailTitle" class="text-lg font-bold"></h3>
+          <div id="detailSubtitle" class="text-xs text-gray-400"></div>
+        </div>
+        <button onclick="closeDetailModal()" class="text-gray-400 text-2xl">&times;</button>
+      </div>
+      <div id="detailChart" class="h-52 px-2"></div>
+      <div id="detailText" class="p-4 text-sm leading-relaxed whitespace-pre-wrap"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==================== 全局状态 ====================
+let currentTab = 'stocks';
+let addType = 'stock';
+let dashboardData = null;
+let stockChart = null;
+let fundChart = null;
+let detailChartInstance = null;
+
+const API_BASE = '';
+
+// ==================== 工具函数 ====================
+function formatAmount(val) {
+  if (!val && val !== 0) return '-';
+  if (val >= 1e12) return (val / 1e12).toFixed(2) + '万亿';
+  if (val >= 1e8) return (val / 1e8).toFixed(2) + '亿';
+  if (val >= 1e4) return (val / 1e4).toFixed(2) + '万';
+  return val.toFixed(2);
+}
+
+function getChangeClass(val) {
+  if (val > 0) return 'up-color';
+  if (val < 0) return 'down-color';
+  return 'flat-color';
+}
+
+function getChangeBg(val) {
+  if (val > 0) return 'up-bg';
+  if (val < 0) return 'down-bg';
+  return 'flat-bg';
+}
+
+function getChangeSign(val) {
+  return val > 0 ? '+' : '';
+}
+
+// ==================== Tab 切换 ====================
+function switchTab(tab) {
+  currentTab = tab;
+  ['stocks', 'funds', 'analyze'].forEach(t => {
+    document.getElementById(`panel-${t}`).classList.toggle('hidden', t !== tab);
+    const tabBtn = document.getElementById(`tab-${t}`);
+    const navBtn = document.getElementById(`nav-${t}`);
+    if (t === tab) {
+      tabBtn.classList.add('tab-active');
+      tabBtn.classList.remove('text-gray-400');
+      navBtn.classList.remove('text-gray-400');
+    } else {
+      tabBtn.classList.remove('tab-active');
+      tabBtn.classList.add('text-gray-400');
+      navBtn.classList.add('text-gray-400');
+    }
+  });
+  
+  if (tab === 'stocks') loadStockList();
+  if (tab === 'funds') loadFundList();
+}
+
+// ==================== 仪表盘加载 ====================
+async function refreshDashboard() {
+  const icon = document.getElementById('refreshIcon');
+  icon.classList.add('loading-spinner');
+  
+  try {
+    const resp = await fetch(`${API_BASE}/api/dashboard`);
+    dashboardData = await resp.json();
+    
+    // 更新概览
+    const s = dashboardData.summary;
+    document.getElementById('stockCount').textContent = s.stock_count;
+    document.getElementById('upCount').textContent = s.stocks_up + s.funds_up;
+    document.getElementById('downCount').textContent = s.stocks_down + s.funds_down;
+    document.getElementById('updateTime').textContent = dashboardData.updated_at?.substring(11, 16) || '';
+    
+    // 渲染列表
+    renderStockList(dashboardData.stocks);
+    renderFundList(dashboardData.funds);
+  } catch (e) {
+    console.error('加载仪表盘失败:', e);
+  } finally {
+    icon.classList.remove('loading-spinner');
+  }
+}
+
+// ==================== 股票列表渲染 ====================
+function renderStockList(stocks) {
+  const container = document.getElementById('stockList');
+  if (!stocks || stocks.length === 0) {
+    container.innerHTML = '<div class="text-center py-8 text-gray-400 text-sm">暂无持仓股票</div>';
+    return;
+  }
+  container.innerHTML = stocks.map(s => `
+    <div class="bg-white dark:bg-gray-800 rounded-xl p-3 shadow-sm flex items-center justify-between cursor-pointer hover:shadow-md transition-shadow"
+         onclick="showStockDetail('${s.code}', '${s.name}')">
+      <div class="flex-1">
+        <div class="flex items-center gap-2">
+          <span class="font-medium text-sm">${s.name}</span>
+          <span class="text-xs text-gray-400">${s.code}</span>
+        </div>
+        <div class="text-xs text-gray-400 mt-1">
+          价格: ¥${s.price?.toFixed(2) || '-'} | 换手: ${s.turnover_rate ? s.turnover_rate + '%' : '-'}
+        </div>
+      </div>
+      <div class="text-right">
+        <div class="text-sm font-bold ${getChangeClass(s.change_pct)}">
+          ¥${s.price?.toFixed(2) || '-'}
+        </div>
+        <div class="text-xs ${getChangeClass(s.change_pct)}">
+          ${getChangeSign(s.change_pct)}${s.change_pct?.toFixed(2) || 0}%
+        </div>
+      </div>
+      <button onclick="event.stopPropagation(); deleteItem('stock', '${s.code}', '${s.name}')" 
+              class="ml-2 text-gray-300 hover:text-red-400 text-lg">&times;</button>
+    </div>
+  `).join('');
+}
+
+function renderFundList(funds) {
+  const container = document.getElementById('fundList');
+  if (!funds || funds.length === 0) {
+    container.innerHTML = '<div class="text-center py-8 text-gray-400 text-sm">暂无持仓基金</div>';
+    return;
+  }
+  container.innerHTML = funds.map(f => `
+    <div class="bg-white dark:bg-gray-800 rounded-xl p-3 shadow-sm flex items-center justify-between cursor-pointer hover:shadow-md transition-shadow"
+         onclick="showFundDetail('${f.code}', '${f.name}')">
+      <div class="flex-1">
+        <div class="flex items-center gap-2">
+          <span class="font-medium text-sm">${f.name}</span>
+          <span class="text-xs text-gray-400">${f.code}</span>
+        </div>
+        <div class="text-xs text-gray-400 mt-1">
+          净值: ${f.latest_nav || '-'} (${f.latest_date || '-'})
+        </div>
+      </div>
+      <div class="text-right">
+        <div class="text-sm font-bold ${getChangeClass(f.daily_change)}">
+          ${f.latest_nav || '-'}
+        </div>
+        <div class="text-xs ${getChangeClass(f.daily_change)}">
+          ${getChangeSign(f.daily_change)}${f.daily_change?.toFixed(2) || 0}%
+        </div>
+      </div>
+      <button onclick="event.stopPropagation(); deleteItem('fund', '${f.code}', '${f.name}')" 
+              class="ml-2 text-gray-300 hover:text-red-400 text-lg">&times;</button>
+    </div>
+  `).join('');
+}
+
+async function loadStockList() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/stocks`);
+    const stocks = await resp.json();
+    // 如果仪表盘数据已加载，用实时数据渲染；否则只显示持仓列表
+    if (dashboardData && dashboardData.stocks) {
+      renderStockList(dashboardData.stocks);
+    } else {
+      document.getElementById('stockList').innerHTML = stocks.map(s => `
+        <div class="bg-white dark:bg-gray-800 rounded-xl p-3 shadow-sm flex items-center justify-between">
+          <div>
+            <span class="font-medium text-sm">${s.name}</span>
+            <span class="text-xs text-gray-400 ml-2">${s.code}</span>
+          </div>
+          <button onclick="deleteItem('stock', '${s.code}', '${s.name}')" class="text-gray-300 hover:text-red-400 text-lg">&times;</button>
+        </div>
+      `).join('');
+    }
+  } catch (e) {
+    console.error('加载股票列表失败:', e);
+  }
+}
+
+async function loadFundList() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/funds`);
+    const funds = await resp.json();
+    if (dashboardData && dashboardData.funds) {
+      renderFundList(dashboardData.funds);
+    } else {
+      document.getElementById('fundList').innerHTML = funds.map(f => `
+        <div class="bg-white dark:bg-gray-800 rounded-xl p-3 shadow-sm flex items-center justify-between">
+          <div>
+            <span class="font-medium text-sm">${f.name}</span>
+            <span class="text-xs text-gray-400 ml-2">${f.code}</span>
+          </div>
+          <button onclick="deleteItem('fund', '${f.code}', '${f.name}')" class="text-gray-300 hover:text-red-400 text-lg">&times;</button>
+        </div>
+      `).join('');
+    }
+  } catch (e) {
+    console.error('加载基金列表失败:', e);
+  }
+}
+
+// ==================== 详情分析 ====================
+async function showStockDetail(code, name) {
+  document.getElementById('detailTitle').textContent = `${name}`;
+  document.getElementById('detailSubtitle').textContent = `${code} · 加载中...`;
+  document.getElementById('detailText').textContent = 'AI 分析中，请稍候...';
+  document.getElementById('detailModal').classList.remove('hidden');
+  
+  // 初始化图表
+  setTimeout(() => {
+    const chartDom = document.getElementById('detailChart');
+    if (detailChartInstance) detailChartInstance.dispose();
+    detailChartInstance = echarts.init(chartDom);
+    detailChartInstance.setOption({
+      title: { text: '加载中...', left: 'center', textStyle: { fontSize: 12, color: '#999' } }
+    });
+  }, 100);
+  
+  try {
+    const resp = await fetch(`${API_BASE}/api/analyze/stock/${code}`);
+    const data = await resp.json();
+    
+    document.getElementById('detailSubtitle').textContent = `${code} · ${data.updated_at || ''}`;
+    document.getElementById('detailText').textContent = data.analysis;
+    
+    // 渲染K线图
+    if (data.data && data.data.history && data.data.history.length > 0) {
+      renderStockChart(detailChartInstance, data.data.history, name);
+    }
+  } catch (e) {
+    document.getElementById('detailText').textContent = '分析失败: ' + e.message;
+  }
+}
+
+async function showFundDetail(code, name) {
+  document.getElementById('detailTitle').textContent = `${name}`;
+  document.getElementById('detailSubtitle').textContent = `${code} · 加载中...`;
+  document.getElementById('detailText').textContent = 'AI 分析中，请稍候...';
+  document.getElementById('detailModal').classList.remove('hidden');
+  
+  setTimeout(() => {
+    const chartDom = document.getElementById('detailChart');
+    if (detailChartInstance) detailChartInstance.dispose();
+    detailChartInstance = echarts.init(chartDom);
+    detailChartInstance.setOption({
+      title: { text: '加载中...', left: 'center', textStyle: { fontSize: 12, color: '#999' } }
+    });
+  }, 100);
+  
+  try {
+    const resp = await fetch(`${API_BASE}/api/analyze/fund/${code}`);
+    const data = await resp.json();
+    
+    document.getElementById('detailSubtitle').textContent = `${code} · ${data.updated_at || ''}`;
+    document.getElementById('detailText').textContent = data.analysis;
+    
+    if (data.data && data.data.history && data.data.history.length > 0) {
+      renderFundChart(detailChartInstance, data.data.history, name);
+    }
+  } catch (e) {
+    document.getElementById('detailText').textContent = '分析失败: ' + e.message;
+  }
+}
+
+function renderStockChart(chart, history, name) {
+  const dates = history.map(d => d.date.substring(0, 10));
+  const closes = history.map(d => d.close);
+  const volumes = history.map(d => d.volume);
+  const colors = history.map(d => d.change_pct >= 0 ? '#ef4444' : '#22c55e');
+  
+  chart.setOption({
+    title: { text: `${name} 近期走势`, left: 'center', textStyle: { fontSize: 13, fontWeight: 'bold' } },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+    grid: [
+      { left: 50, right: 20, top: 40, height: '55%' },
+      { left: 50, right: 20, top: '75%', height: '18%' }
+    ],
+    xAxis: [
+      { type: 'category', data: dates, gridIndex: 0, axisLabel: { fontSize: 10 } },
+      { type: 'category', data: dates, gridIndex: 1, axisLabel: { show: false } }
+    ],
+    yAxis: [
+      { type: 'value', gridIndex: 0, scale: true, axisLabel: { fontSize: 10 } },
+      { type: 'value', gridIndex: 1, scale: true, axisLabel: { fontSize: 9 } }
+    ],
+    series: [
+      {
+        name: '收盘价',
+        type: 'line',
+        data: closes,
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        smooth: true,
+        lineStyle: { width: 2 },
+        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [
+          { offset: 0, color: 'rgba(59,130,246,0.3)' },
+          { offset: 1, color: 'rgba(59,130,246,0.05)' }
+        ]}},
+        itemStyle: { color: '#3b82f6' }
+      },
+      {
+        name: '成交量',
+        type: 'bar',
+        data: volumes.map((v, i) => ({ value: v, itemStyle: { color: colors[i] } })),
+        xAxisIndex: 1,
+        yAxisIndex: 1,
+      }
+    ]
+  }, true);
+}
+
+function renderFundChart(chart, history, name) {
+  const dates = history.map(d => d.date);
+  const navs = history.map(d => d.nav);
+  
+  chart.setOption({
+    title: { text: `${name} 净值走势`, left: 'center', textStyle: { fontSize: 13, fontWeight: 'bold' } },
+    tooltip: { trigger: 'axis' },
+    grid: { left: 50, right: 20, top: 40, bottom: 30 },
+    xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 10, rotate: 30 } },
+    yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10 } },
+    series: [{
+      name: '净值',
+      type: 'line',
+      data: navs,
+      smooth: true,
+      lineStyle: { width: 2, color: '#8b5cf6' },
+      areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [
+        { offset: 0, color: 'rgba(139,92,246,0.3)' },
+        { offset: 1, color: 'rgba(139,92,246,0.05)' }
+      ]}},
+      itemStyle: { color: '#8b5cf6' }
+    }]
+  }, true);
+}
+
+function closeDetailModal() {
+  document.getElementById('detailModal').classList.add('hidden');
+  if (detailChartInstance) {
+    detailChartInstance.dispose();
+    detailChartInstance = null;
+  }
+}
+
+// ==================== 智能分析 ====================
+async function doAnalyze() {
+  const type = document.getElementById('analyzeType').value;
+  const code = document.getElementById('analyzeCode').value.trim();
+  
+  if (!code) { alert('请输入代码'); return; }
+  
+  document.getElementById('analyzeResult').classList.add('hidden');
+  document.getElementById('analyzeLoading').classList.remove('hidden');
+  
+  try {
+    const url = type === 'stock' ? `/api/analyze/stock/${code}` : `/api/analyze/fund/${code}`;
+    const resp = await fetch(`${API_BASE}${url}`);
+    const data = await resp.json();
+    
+    document.getElementById('analyzeLoading').classList.add('hidden');
+    document.getElementById('analyzeResult').classList.remove('hidden');
+    
+    const title = type === 'stock' ? `${data.data?.realtime?.name || code}` : `${data.name || code}`;
+    document.getElementById('analyzeTitle').textContent = title;
+    document.getElementById('analyzeSubtitle').textContent = `${code} · ${type === 'stock' ? '股票' : '基金'} · ${data.updated_at}`;
+    document.getElementById('analyzeText').textContent = data.analysis;
+    
+    if (data.cached) {
+      document.getElementById('analyzeCacheTag').classList.remove('hidden');
+    } else {
+      document.getElementById('analyzeCacheTag').classList.add('hidden');
+    }
+    
+    // 渲染图表
+    setTimeout(() => {
+      const chartDom = document.getElementById('analyzeChart');
+      if (stockChart) stockChart.dispose();
+      if (fundChart) fundChart.dispose();
+      
+      if (type === 'stock' && data.data?.history?.length > 0) {
+        stockChart = echarts.init(chartDom);
+        renderStockChart(stockChart, data.data.history, data.data.realtime?.name || code);
+      } else if (type === 'fund' && data.data?.history?.length > 0) {
+        fundChart = echarts.init(chartDom);
+        renderFundChart(fundChart, data.data.history, data.name || code);
+      }
+    }, 100);
+    
+  } catch (e) {
+    document.getElementById('analyzeLoading').classList.add('hidden');
+    document.getElementById('analyzeResult').classList.remove('hidden');
+    document.getElementById('analyzeTitle').textContent = '分析失败';
+    document.getElementById('analyzeText').textContent = '错误: ' + e.message;
+  }
+}
+
+// ==================== 持仓管理 ====================
+function showAddModal(type) {
+  addType = type;
+  document.getElementById('addModalTitle').textContent = type === 'stock' ? '添加股票' : '添加基金';
+  document.getElementById('addCode').value = '';
+  document.getElementById('addName').value = '';
+  document.getElementById('addModal').classList.remove('hidden');
+}
+
+function closeAddModal() {
+  document.getElementById('addModal').classList.add('hidden');
+}
+
+async function doAdd() {
+  const code = document.getElementById('addCode').value.trim();
+  const name = document.getElementById('addName').value.trim();
+  if (!code || !name) { alert('请填写代码和名称'); return; }
+  
+  try {
+    const url = addType === 'stock' ? '/api/stocks' : '/api/funds';
+    const resp = await fetch(`${API_BASE}${url}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, name })
+    });
+    
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || '添加失败');
+    }
+    
+    closeAddModal();
+    refreshDashboard();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function deleteItem(type, code, name) {
+  if (!confirm(`确定删除 ${name}(${code})？`)) return;
+  
+  try {
+    const url = type === 'stock' ? `/api/stocks/${code}` : `/api/funds/${code}`;
+    const resp = await fetch(`${API_BASE}${url}`, { method: 'DELETE' });
+    if (!resp.ok) throw new Error('删除失败');
+    refreshDashboard();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+// ==================== 窗口自适应 ====================
+window.addEventListener('resize', () => {
+  if (stockChart) stockChart.resize();
+  if (fundChart) fundChart.resize();
+  if (detailChartInstance) detailChartInstance.resize();
+});
+
+// ==================== 初始化 ====================
+document.addEventListener('DOMContentLoaded', () => {
+  refreshDashboard();
+});
+
+// 回车触发分析
+document.getElementById('analyzeCode').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') doAnalyze();
+});
+</script>
+</body>
+</html>
