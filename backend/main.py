@@ -421,6 +421,13 @@ class FundAdd(BaseModel):
     code: str
     name: str
 
+class BatchAddItem(BaseModel):
+    code: str
+    name: str
+
+class BatchAddRequest(BaseModel):
+    items: list[BatchAddItem]
+
 
 # ==================== API 接口 ====================
 
@@ -476,6 +483,40 @@ async def add_fund(item: FundAdd):
             return {"status": "ok", "message": f"已添加 {item.name}({item.code})"}
         except sqlite3.IntegrityError:
             raise HTTPException(400, f"基金 {item.code} 已在持仓中")
+
+
+@app.post("/api/stocks/batch")
+async def batch_add_stocks(req: BatchAddRequest):
+    """批量添加股票"""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    added, skipped, errors = [], [], []
+    with get_db() as conn:
+        for item in req.items:
+            try:
+                conn.execute("INSERT INTO stocks (code, name, added_at) VALUES (?,?,?)",
+                            (item.code, item.name, now))
+                added.append(f"{item.name}({item.code})")
+            except sqlite3.IntegrityError:
+                skipped.append(f"{item.name}({item.code})")
+        conn.commit()
+    return {"status": "ok", "added": added, "skipped": skipped}
+
+
+@app.post("/api/funds/batch")
+async def batch_add_funds(req: BatchAddRequest):
+    """批量添加基金"""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    added, skipped = [], []
+    with get_db() as conn:
+        for item in req.items:
+            try:
+                conn.execute("INSERT INTO funds (code, name, added_at) VALUES (?,?,?)",
+                            (item.code, item.name, now))
+                added.append(f"{item.name}({item.code})")
+            except sqlite3.IntegrityError:
+                skipped.append(f"{item.name}({item.code})")
+        conn.commit()
+    return {"status": "ok", "added": added, "skipped": skipped}
 
 
 @app.delete("/api/stocks/{code}")

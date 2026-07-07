@@ -182,15 +182,28 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
 <!-- 添加持仓弹窗 -->
 <div id="addModal" class="fixed inset-0 z-50 hidden">
   <div class="modal-overlay absolute inset-0" onclick="closeAddModal()"></div>
-  <div class="absolute bottom-0 left-0 right-0 bg-white dark:bg-gray-800 rounded-t-2xl p-6 animate-slide-up">
+  <div class="absolute bottom-0 left-0 right-0 bg-white dark:bg-gray-800 rounded-t-2xl p-6 animate-slide-up max-h-[80vh] overflow-y-auto">
     <div class="flex justify-between items-center mb-4">
       <h3 id="addModalTitle" class="text-lg font-bold">添加持仓</h3>
       <button onclick="closeAddModal()" class="text-gray-400 text-2xl">&times;</button>
     </div>
     <div class="space-y-3">
-      <input id="addCode" type="text" placeholder="代码 (如 002475)" class="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-      <input id="addName" type="text" placeholder="名称 (如 立讯精密)" class="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-      <button onclick="doAdd()" class="w-full py-3 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-600">确认添加</button>
+      <!-- 单个添加 -->
+      <div class="bg-gray-50 dark:bg-gray-700 rounded-xl p-3">
+        <div class="text-xs text-gray-500 mb-2">单个添加</div>
+        <div class="flex gap-2">
+          <input id="addCode" type="text" placeholder="代码" class="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <input id="addName" type="text" placeholder="名称" class="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <button onclick="doAdd()" class="w-full mt-2 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium">添加</button>
+      </div>
+      <!-- 批量添加 -->
+      <div class="bg-blue-50 dark:bg-gray-700 rounded-xl p-3">
+        <div class="text-xs text-blue-600 dark:text-blue-400 mb-2">📋 批量添加（每行一个，格式：代码 名称）</div>
+        <textarea id="batchInput" rows="6" placeholder="示例：&#10;002475 立讯精密&#10;601138 工业富联&#10;005786 银华农业" class="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"></textarea>
+        <button onclick="doBatchAdd()" class="w-full mt-2 py-2 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600">批量添加</button>
+      </div>
+      <div id="batchResult" class="hidden text-xs p-2 rounded-lg"></div>
     </div>
   </div>
 </div>
@@ -637,6 +650,46 @@ async function doAdd() {
     refreshDashboard();
   } catch (e) {
     alert(e.message);
+  }
+}
+
+async function doBatchAdd() {
+  const text = document.getElementById('batchInput').value.trim();
+  if (!text) { alert('请输入要添加的内容'); return; }
+  
+  const items = [];
+  const lines = text.split('\n').filter(l => l.trim());
+  for (const line of lines) {
+    const parts = line.trim().split(/[\s,，、]+/);
+    if (parts.length >= 2) {
+      items.push({ code: parts[0], name: parts.slice(1).join('') });
+    } else if (parts.length === 1 && parts[0]) {
+      items.push({ code: parts[0], name: parts[0] });
+    }
+  }
+  
+  if (items.length === 0) { alert('没有有效的条目'); return; }
+  
+  try {
+    const url = addType === 'stock' ? '/api/stocks/batch' : '/api/funds/batch';
+    const resp = await fetch(`${API_BASE}${url}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items })
+    });
+    const result = await resp.json();
+    
+    const resultDiv = document.getElementById('batchResult');
+    resultDiv.classList.remove('hidden');
+    let msg = `✅ 成功添加 ${result.added.length} 个`;
+    if (result.skipped.length > 0) msg += `，⏭️ 跳过 ${result.skipped.length} 个(已存在)`;
+    resultDiv.textContent = msg;
+    resultDiv.className = 'text-xs p-2 rounded-lg ' + (result.added.length > 0 ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700');
+    
+    document.getElementById('batchInput').value = '';
+    refreshDashboard();
+  } catch (e) {
+    alert('批量添加失败: ' + e.message);
   }
 }
 
